@@ -1,0 +1,11 @@
+@CsharpAppBuildDocker.Api_HostAddress = http://localhost:5250
+
+GET {{CsharpAppBuildDocker.Api_HostAddress}}/api/health
+Accept: application/json
+
+###
+
+GET {{CsharpAppBuildDocker.Api_HostAddress}}/api/users/names
+Accept: application/json
+
+###

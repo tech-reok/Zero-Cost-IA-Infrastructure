@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="CsharpAppBuildDocker.Api/CsharpAppBuildDocker.Api.csproj" />
+  <Project Path="CsharpAppBuildDocker.Api.Tests/CsharpAppBuildDocker.Api.Tests.csproj" />
+</Solution>

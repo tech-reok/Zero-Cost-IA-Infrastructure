@@ -1,0 +1,46 @@
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build_test_publish
+
+WORKDIR /src
+
+# Copy project files first for better layer caching during restore.
+COPY CsharpAppBuildDocker.Api/CsharpAppBuildDocker.Api.csproj CsharpAppBuildDocker.Api/
+COPY CsharpAppBuildDocker.Api.Tests/CsharpAppBuildDocker.Api.Tests.csproj CsharpAppBuildDocker.Api.Tests/
+
+# 1) .NET 8 is provided by the SDK base image.
+# 2) Restore NuGet packages.
+RUN dotnet restore CsharpAppBuildDocker.Api.Tests/CsharpAppBuildDocker.Api.Tests.csproj
+
+# Copy full source after restore.
+COPY . .
+
+# 3) Build application and tests.
+RUN dotnet build CsharpAppBuildDocker.Api/CsharpAppBuildDocker.Api.csproj -c Release --no-restore \
+	&& dotnet build CsharpAppBuildDocker.Api.Tests/CsharpAppBuildDocker.Api.Tests.csproj -c Release --no-restore
+
+# 4) Run tests and store coverage artifacts.
+RUN dotnet test CsharpAppBuildDocker.Api.Tests/CsharpAppBuildDocker.Api.Tests.csproj \
+	-c Release \
+	--no-build \
+	--collect:"XPlat Code Coverage" \
+	--results-directory /artifacts/testresults
+
+# 5) Publish application and keep build artifacts.
+RUN dotnet publish CsharpAppBuildDocker.Api/CsharpAppBuildDocker.Api.csproj \
+	-c Release \
+	--no-build \
+	-o /artifacts/publish
+
+RUN mkdir -p /artifacts/build/api /artifacts/build/tests \
+	&& cp -R CsharpAppBuildDocker.Api/bin/Release/net8.0/. /artifacts/build/api/ \
+	&& cp -R CsharpAppBuildDocker.Api.Tests/bin/Release/net8.0/. /artifacts/build/tests/
+
+# 6) Create busybox image carrying build and coverage artifacts.
+FROM busybox:1.36 AS busybox_artifacts
+
+WORKDIR /artifacts
+
+COPY --from=build_test_publish /artifacts/build ./build
+COPY --from=build_test_publish /artifacts/publish ./publish
+COPY --from=build_test_publish /artifacts/testresults ./coverage
+
+CMD ["sh", "-c", "echo Artifacts available under /artifacts; find /artifacts -maxdepth 4 -type f | sort"]

@@ -1,0 +1,182 @@
+name: CI Build Test
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'CsharpAppBuildDocker.Api/**'
+      - 'CsharpAppBuildDocker.Api.Tests/**'
+  workflow_dispatch:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: [self-hosted, Linux, ARM64, tech-reok-builders]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          clean: false
+          path: src
+
+      - name: Setup commit on version info
+        shell: bash
+        working-directory: src
+        run: |
+          COMMIT_HASH=$(git rev-parse --short HEAD)
+          echo "Setting commit hash in appsettings.json: ${COMMIT_HASH}"
+          # We use 'jq' to update the JSON file with the commit hash
+          if [ -f CsharpAppBuildDocker.Api/appsettings.json ]; then
+            jq --arg hash "$COMMIT_HASH" '.CommitHash = $hash' CsharpAppBuildDocker.Api/appsettings.json > tmp.$$.json && mv tmp.$$.json CsharpAppBuildDocker.Api/appsettings.json
+            echo "Updated appsettings.json with commit hash."
+          else
+            echo "appsettings.json not found, skipping commit hash update."
+          fi
+
+      - name: Generate Docker tag
+        id: meta
+        shell: bash
+        working-directory: src
+        run: |
+          REPO_NAME="${GITHUB_REPOSITORY##*/}"
+          SHORT_SHA="${GITHUB_SHA::7}"
+          DOCKER_TAG="marcocantugea/${REPO_NAME}:${SHORT_SHA}"
+
+          echo "repo_name=${REPO_NAME}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "docker_tag=${DOCKER_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Build Docker image
+        shell: bash
+        working-directory: src
+        run: |
+          docker build \
+            --target busybox_artifacts \
+            -f .github/dockerfile \
+            -t "${{ steps.meta.outputs.docker_tag }}" \
+            .
+
+      - name: Login to Docker Hub
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push Docker image
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          docker push "${{ steps.meta.outputs.docker_tag }}"
+
+      - name: Extract publish and coverage from image
+        shell: bash
+        working-directory: src
+        run: |
+          docker run --rm \
+            -v "${PWD}:/workspace" \
+            busybox:1.36 \
+            sh -c "rm -rf /workspace/publish /workspace/coverage /workspace/coveragereport"
+
+          mkdir -p coverage
+
+          if [ "${{ github.event_name }}" = "push" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            mkdir -p publish
+          fi
+
+          CID="$(docker create "${{ steps.meta.outputs.docker_tag }}")"
+          docker cp "${CID}:/artifacts/coverage/." ./coverage/
+
+          if [ "${{ github.event_name }}" = "push" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            docker cp "${CID}:/artifacts/publish/." ./publish/
+          fi
+
+          docker rm "${CID}"
+
+          echo "Extracted files:"
+          if [ -d publish ]; then
+            find publish coverage -maxdepth 4 -type f | sort
+          else
+            find coverage -maxdepth 4 -type f | sort
+          fi
+
+      - name: Upload publish artifact
+        id: upload_publish
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: publish-${{ steps.meta.outputs.short_sha }}
+          path: src/publish/
+          if-no-files-found: error
+
+      - name: Generate Report (containerized)
+        shell: bash
+        working-directory: src
+        run: |
+          docker run --rm \
+            -v "${PWD}:/workspace" \
+            -w /workspace \
+            --user "$(id -u):$(id -g)" \
+            mcr.microsoft.com/dotnet/sdk:8.0 \
+            bash -lc "export HOME=/tmp && dotnet tool install -g dotnet-reportgenerator-globaltool --version 5.* && export PATH=\$PATH:/tmp/.dotnet/tools && reportgenerator '-reports:/workspace/coverage/**/coverage.cobertura.xml' '-targetdir:/workspace/coveragereport' '-reporttypes:HtmlInline_AzurePipelines;MarkdownSummary' && \
+                     chmod -R 777 /workspace/coveragereport"
+
+      - name: Upload Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-${{ steps.meta.outputs.short_sha }}
+          path: src/coveragereport/
+          if-no-files-found: error
+
+      - name: Capture coverage result
+        id: coverage_result
+        shell: bash
+        working-directory: src
+        run: |
+          SUMMARY_LINE="Coverage summary not found"
+          if [ -f coveragereport/Summary.md ]; then
+            MATCH="$(grep -Eo '[0-9]+([.][0-9]+)?%' coveragereport/Summary.md | head -n 1 || true)"
+            if [ -n "$MATCH" ]; then
+              SUMMARY_LINE="Line coverage: ${MATCH}"
+            else
+              SUMMARY_LINE="Coverage report generated (see Summary.md)"
+            fi
+          fi
+
+          {
+            echo "coverage_summary<<EOF"
+            echo "$SUMMARY_LINE"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Job summary
+        shell: bash
+        working-directory: src
+        run: |
+          {
+            echo "## CI Build/Test Summary"
+            echo ""
+            echo "- Docker tag: ${{ steps.meta.outputs.docker_tag }}"
+            if [ "${{ github.event_name }}" = "push" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+              echo "- Docker image pushed: yes"
+            else
+              echo "- Docker image pushed: no (event: ${{ github.event_name }})"
+            fi
+            if [ "${{ github.event_name }}" = "push" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+              echo "- Publish artifact id: ${{ steps.upload_publish.outputs.artifact-id }}"
+            else
+              echo "- Publish artifact id: not-uploaded (event: ${{ github.event_name }})"
+            fi
+            echo "- Coverage result: ${{ steps.coverage_result.outputs.coverage_summary }}"
+            echo ""
+            if [ -f coveragereport/Summary.md ]; then
+              echo "### Coverage report"
+              cat coveragereport/Summary.md
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

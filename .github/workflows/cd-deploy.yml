@@ -1,0 +1,58 @@
+name: CD Local Deploy with Docker
+
+on:
+  workflow_dispatch:
+    inputs:
+      docker_tag:
+        description: 'Tag  of the busybox image (e.g., marcocantugea/repo:sha)'
+        required: true
+
+jobs:
+  deploy-local:
+    runs-on: [self-hosted, Linux, ARM64, tech-reok-builders]
+
+    steps:
+      - name: Cleanup workspace as root
+        shell: bash
+        run: |
+          # we use a lightweight image to clean the directory with root permissions
+          docker run --rm -v "${{ github.workspace }}:/workspace" busybox sh -c "rm -rf /workspace/*"
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Extract Artifacts from Busybox
+        run: |
+          # Pull the artifacts image
+          docker pull ${{ github.event.inputs.docker_tag }}
+          
+          # Clean and extract the files to the folder that Compose reads
+          rm -rf ./deploy_temp && mkdir -p ./deploy_temp
+          CID=$(docker create ${{ github.event.inputs.docker_tag }})
+          docker cp $CID:/artifacts/publish/. ./deploy_temp
+          docker rm $CID
+          chmod -R 755 ./deploy_temp
+
+      - name: Fix Permissions
+        run: |
+          chmod -R 755 ./deploy_temp
+          chown -R 1000:1000 ./deploy_temp
+
+      - name: Deploy with Docker Compose
+        run: |
+          # Pass the tag as an environment variable for the compose file
+          export DOCKER_TAG=${{ github.event.inputs.docker_tag }}
+          docker compose -f .github/docker-compse.yml up -d --force-recreate
+
+      - name: Verify Deployment
+        run: |
+          docker ps | grep csharp-api-prod
+          echo "Deployment finished on port ${{ github.event.inputs.port }}"
+
+      - name: Debug Path and Content
+        run: |
+          echo "Current Path: $(pwd)"
+          echo "Checking deploy_temp content:"
+          ls -R ./deploy_temp

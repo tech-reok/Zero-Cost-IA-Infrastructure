@@ -1,0 +1,15 @@
+services:
+  api:
+    image: mcr.microsoft.com/dotnet/aspnet:8.0
+    container_name: csharp-api-prod
+    ports:
+      - "8089:8080"
+    restart: always
+    environment:
+      - DOTNET_URLS=http://+:8080
+    volumes:
+      # Usamos la ruta completa que nos dio el debug para asegurar
+      - /home/mcantu/actions-runner/_work/csharp-app-build-docker/csharp-app-build-docker/deploy_temp:/app
+    working_dir: /app
+    # Now the runtime will find the 'dotnet' command
+    entrypoint: ["dotnet", "CsharpAppBuildDocker.Api.dll"]
