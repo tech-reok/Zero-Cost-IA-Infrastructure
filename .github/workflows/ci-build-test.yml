@@ -45,6 +45,7 @@ jobs:
         working-directory: src
         run: |
           REPO_NAME="${GITHUB_REPOSITORY##*/}"
+          REPO_NAME="${REPO_NAME,,}"
           SHORT_SHA="${GITHUB_SHA::7}"
           DOCKER_TAG="marcocantugea/${REPO_NAME}:${SHORT_SHA}"
 
