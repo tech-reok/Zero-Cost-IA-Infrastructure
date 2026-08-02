@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   build-test:
-    runs-on: [self-hosted, Linux, ARM64, tech-reok-builders]
+    runs-on: [self-hosted, Linux, X64, tech-reok-builders]
 
     steps:
       - name: Checkout

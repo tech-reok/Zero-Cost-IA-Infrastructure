@@ -1,0 +1,42 @@
+name: Local AI Code Review
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  ai_review:
+    runs-on: [self-hosted, Linux, X64, tech-reok-builders]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Obtain Diff
+        id: get_diff
+        run: |
+          git diff origin/main...HEAD > pr_diff.txt
+          echo "Diff guardado para análisis."
+
+      - name: Call Local IA
+        run: |
+          PROMPT="Eres un ingeniero DevOps. Revisa el siguiente código buscando malas prácticas y vulnerabilidades: $(cat pr_diff.txt)"
+          
+          curl -X POST http://172.17.0.1:11434/api/generate -d '{
+            "model": "qwen3:4b-custom",
+            "prompt": "'"$PROMPT"'",
+            "stream": false
+          }' > ai_response.json
+
+      - name: Comment on PR
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const response = JSON.parse(fs.readFileSync('ai_response.json', 'utf8'));
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: "🤖 **Análisis de IA Local:**\n\n" + response.response
+            })
