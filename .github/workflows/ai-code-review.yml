@@ -36,7 +36,7 @@ jobs:
             github.rest.pulls.createReview({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              pull_number: context.issue.number, // Ojo: aquí cambia a pull_number
+              pull_number: context.issue.number,
               body: "🤖 **Automated Local Analysis:**\n\n" + result.response,
-              event: 'REQUEST_CHANGES' // Esto marca la revisión como "Request changes"
-            }
+              event: 'REQUEST_CHANGES'
+            })
