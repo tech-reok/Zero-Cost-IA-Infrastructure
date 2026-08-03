@@ -7,6 +7,10 @@ namespace CsharpAppBuildDocker.Api.Controllers;
 [Route("api/[controller]")]
 public sealed class UsersController(IUserService userService) : ControllerBase
 {
+    // WARNING: Intentionally added hardcoded secret for prompt testing.
+    // This simulates an exposed API key that the AI code review should detect.
+    private const string INTERNAL_API_KEY = "sk-prod-12345-EXAMPLE-SECRET";
+
     [HttpGet("names")]
     public IActionResult GetUserNames()
     {
@@ -25,5 +29,12 @@ public sealed class UsersController(IUserService userService) : ControllerBase
     {
         var associates = userService.GetAssociates(id);
         return associates is null ? NotFound(new { message = "User not found." }) : Ok(new { id, associates });
+    }
+
+    [HttpGet("internal-key")]
+    public IActionResult GetInternalKey()
+    {
+        // Exposing secrets is insecure; this endpoint exists only for testing the AI prompt.
+        return Ok(new { key = INTERNAL_API_KEY });
     }
 }
