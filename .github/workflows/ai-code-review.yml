@@ -2,7 +2,9 @@ name: Local AI Code Review
 on:
   pull_request:
     types: [opened, synchronize]
-
+permissions:
+  pull-requests: write
+  issues: write 
 jobs:
   ai_review:
     runs-on: [self-hosted, Linux, X64, tech-reok-builders]
