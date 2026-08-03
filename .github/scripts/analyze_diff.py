@@ -78,7 +78,7 @@ def main():
     print(f"Enviando el análisis estructurado a Ollama ({OLLAMA_MODEL})...")
     
     try:
-        with urllib.request.urlopen(req, timeout=120) as response:
+        with urllib.request.urlopen(req, timeout=600) as response:
             result = json.loads(response.read().decode('utf-8'))
             ai_text = result.get("response", "La IA no devolvió ninguna respuesta.")
             
