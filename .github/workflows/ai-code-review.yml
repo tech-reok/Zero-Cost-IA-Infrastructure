@@ -18,25 +18,27 @@ jobs:
           git diff origin/main...HEAD > pr_diff.txt
           echo "Diff guardado para análisis."
 
-      - name: Call Local IA
-        run: |
-          PROMPT="Eres un ingeniero DevOps. Revisa el siguiente código buscando malas prácticas y vulnerabilidades: $(cat pr_diff.txt)"
-          
-          curl -X POST http://172.17.0.1:11434/api/generate -d '{
-            "model": "qwen3:4b-custom",
-            "prompt": "'"$PROMPT"'",
-            "stream": false
-          }' > ai_response.json
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11.2' 
 
-      - name: Comment on PR
+      - name: Ejecutar Análisis de IA con Python
+        env:
+          OLLAMA_URL: "http://127.0.0.1:11434/api/generate"
+          OLLAMA_MODEL: "qwen3:4b-custom" 
+        run: python .github/scripts/analyze_diff.py
+
+      - name: Comentar en el PR
         uses: actions/github-script@v6
         with:
           script: |
             const fs = require('fs');
-            const response = JSON.parse(fs.readFileSync('ai_response.json', 'utf8'));
+            // Leemos el JSON generado y estructurado por nuestro script de Python
+            const result = JSON.parse(fs.readFileSync('ai_response.json', 'utf8'));
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: "🤖 **Análisis de IA Local:**\n\n" + response.response
+              body: "🤖 **Análisis Automatizado Local:**\n\n" + result.response
             })
