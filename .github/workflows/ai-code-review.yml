@@ -20,22 +20,23 @@ jobs:
           git diff origin/main...HEAD > pr_diff.txt
           echo "Diff guardado para análisis."
 
-      - name: Ejecutar Análisis de IA con Python
+      - name: Analising IA Code Security
         env:
           OLLAMA_URL: "http://127.0.0.1:11434/api/generate"
           OLLAMA_MODEL: "qwen3:4b-custom" 
         run: python3 .github/scripts/analyze_diff.py
 
-      - name: Comentar en el PR
+      - name: Commment PR (Review)
         uses: actions/github-script@v6
         with:
           script: |
             const fs = require('fs');
-            // Leemos el JSON generado y estructurado por nuestro script de Python
             const result = JSON.parse(fs.readFileSync('ai_response.json', 'utf8'));
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
+            
+            github.rest.pulls.createReview({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: "🤖 **Análisis Automatizado Local:**\n\n" + result.response
-            })
+              pull_number: context.issue.number, // Ojo: aquí cambia a pull_number
+              body: "🤖 **Automated Local Analysis:**\n\n" + result.response,
+              event: 'REQUEST_CHANGES' // Esto marca la revisión como "Request changes"
+            }
